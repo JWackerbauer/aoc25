@@ -36,7 +36,7 @@ func solve(input string) int {
 				lines[y] = replaceAtIndex(lines[y], "|", x)
 			}
 		}
-		fmt.Printf("%v\n", lines[y])
+		fmt.Println(lines[y])
 	}
 	return result
 }
