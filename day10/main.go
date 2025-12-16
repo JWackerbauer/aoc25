@@ -4,19 +4,32 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/JWackerbauer/aoc25/day10/machine"
 )
 
-func process(input string) {
-	var machines []Machine
-	for line := range strings.Lines(input) {
-		machines = append(machines, CreateMachine(line))
-	}
+type Machine = []*machine.Line
 
+func process(input string) Machine {
+	var mach Machine
+	for line := range strings.Lines(input) {
+		mach = append(mach, machine.New(line))
+	}
+	return mach
 }
+
+const max = 10
 
 func solve(input string) int {
 	var result = 0
-	process(input)
+	mach := process(input)
+	for _, line := range mach {
+		presses, err := line.Solve(max)
+		if err != nil {
+			panic(err)
+		}
+		result += presses
+	}
 	return result
 }
 
