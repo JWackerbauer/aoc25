@@ -55,7 +55,7 @@ func sortedRectangles(tiles []Tile) []Rectangle {
 
 	slices.SortFunc(rectangles, func(a, b Rectangle) int {
 		// Sort desc
-		return a.area - b.area
+		return b.area - a.area
 	})
 
 	return rectangles
@@ -66,11 +66,19 @@ func solve(input string) int {
 	tiles := process(input)
 	rectangles := sortedRectangles(tiles)
 
-	return rectangles[len(rectangles)-1].area
+	return rectangles[0].area
 }
 
 type Edge struct {
 	a, b Tile
+}
+
+func (e Edge) normalize() Edge {
+	// Check if e.a is "larger" than e.b
+	if e.a.x > e.b.x || (e.a.x == e.b.x && e.a.y > e.b.y) {
+		return Edge{a: e.b, b: e.a}
+	}
+	return e
 }
 
 func (me Edge) vertical() bool {
@@ -91,60 +99,117 @@ func perpendicular(e1, e2 Edge) bool {
 	return true
 }
 
-func intersect(e1, e2 Edge) bool {
+func between(a, b, between int) bool {
+	return a < between && between < b ||
+		b < between && between < a
+}
+
+func between_incl(a, b, between int) bool {
+	return a <= between && between <= b ||
+		b <= between && between <= a
+}
+
+func between_lower_incl(a, b, between int) bool {
+	return a <= between && between < b ||
+		b <= between && between < a
+}
+
+func edgeContains(e Edge, t Tile) bool {
+	var cont_x, cont_y bool
+	if e.horizontal() {
+		cont_x = between_incl(e.a.x, e.b.x, t.x)
+		cont_y = t.y == e.a.y
+	} else {
+		cont_x = t.x == e.a.x
+		cont_y = between_incl(e.a.y, e.b.y, t.y)
+	}
+	return cont_x && cont_y
+}
+
+func intersect_incl(e1, e2 Edge) bool {
 	if !perpendicular(e1, e2) {
 		return false
 	}
 	if e1.horizontal() {
 		// -> e2 is vertical
-		ax_e2_bx := e1.a.x < e2.a.x && e2.a.x < e1.b.x
-		bx_e2_ax := e1.b.x < e2.a.x && e2.a.x < e1.a.x
-		ay_e1_by := e2.a.y < e1.a.y && e1.a.y < e2.b.y
-		by_e1_ay := e2.b.y < e1.a.y && e1.a.y < e2.a.y
-		return (ax_e2_bx || bx_e2_ax) && (ay_e1_by || by_e1_ay)
-
+		return between(e1.a.x, e1.b.x, e2.a.x) && between_lower_incl(e2.a.y, e2.b.y, e1.a.y)
 	} else if e1.vertical() {
 		// -> e2 is horizontal
 		// -> e2 is vertical
-		ay_e2_by := e1.a.y < e2.a.y && e2.a.y < e1.b.y
-		by_e2_ay := e1.b.y < e2.a.y && e2.a.y < e1.a.y
-		ax_e1_bx := e2.a.x < e1.a.x && e1.a.x < e2.b.x
-		bx_e1_ax := e2.b.x < e1.a.x && e1.a.x < e2.a.x
-		return (ay_e2_by || by_e2_ay) && (ax_e1_bx || bx_e1_ax)
+		return between(e1.a.y, e1.b.y, e2.a.y) && between_lower_incl(e2.a.x, e2.b.x, e1.a.x)
 	} else {
 		panic(fmt.Sprintf("diagonal line!? %v %v", e1, e2))
 	}
 }
 
-func projectCorner(e1, e2 Edge) (Edge, Edge, error) {
-	if !perpendicular(e1, e2) {
-		return Edge{}, Edge{}, fmt.Errorf("Not a corner: %v %v are not perpendicular", e1, e2)
+func oppositeCorners(t1, t3 Tile) (Tile, Tile) {
+	t2 := Tile{x: t1.x, y: t3.y}
+	t4 := Tile{x: t3.x, y: t1.y}
+	return t2, t4
+}
+
+func edgesOfCorners(t1, t2, t3, t4 Tile) (Edge, Edge, Edge, Edge) {
+	return Edge{t1, t2}, Edge{t2, t3}, Edge{t3, t4}, Edge{t4, t1}
+}
+
+var greenTiles = make(map[Tile]bool)
+
+func isInsideEdges(t Tile, edges []Edge) bool {
+	memo, ok := greenTiles[t]
+	if ok {
+		return memo
 	}
-	if e1.b != e2.a {
-		return Edge{}, Edge{}, fmt.Errorf("Not a corner: %v %v are not the same", e1.b, e2.a)
+	t_edge := Edge{Tile{x: 0, y: t.y}, t}
+	intersections := 0
+	for _, e := range edges {
+		if edgeContains(e, t) {
+			greenTiles[t] = true
+			return true
+		}
+		if intersect_incl(t_edge, e) {
+			intersections++
+		}
 	}
-	//Project corner e1.b (= e2.a)
-	var proj_corner Tile
-	if e1.horizontal() {
-		proj_corner = Tile{
-			x: e1.a.x,
-			y: e2.b.y,
+	inside := intersections%2 != 0
+	//greenTiles[t] = inside
+	return inside
+}
+
+var greenEdges = make(map[Edge]bool)
+
+func edgeIsInsideEdges(e Edge, edges []Edge) bool {
+	e = e.normalize()
+	memo, ok := greenEdges[e]
+	if ok {
+		return memo
+	}
+	if e.horizontal() {
+		x1, x2 := e.a.x, e.b.x
+		y := e.a.y
+		if x1 > x2 {
+			x1, x2 = x2, x1
+		}
+		for x := x1; x <= x2; x++ {
+			if !isInsideEdges(Tile{x: x, y: y}, edges) {
+				greenEdges[e] = false
+				return false
+			}
 		}
 	} else {
-		proj_corner = Tile{
-			x: e2.b.x,
-			y: e1.a.y,
+		y1, y2 := e.a.y, e.b.y
+		x := e.a.x
+		if y1 > y2 {
+			y1, y2 = y2, y1
+		}
+		for y := y1; y <= y2; y++ {
+			if !isInsideEdges(Tile{x: x, y: y}, edges) {
+				greenEdges[e] = false
+				return false
+			}
 		}
 	}
-	e1_p := Edge{
-		e2.b,
-		proj_corner,
-	}
-	e2_p := Edge{
-		proj_corner,
-		e1.a,
-	}
-	return e1_p, e2_p, nil
+	greenEdges[e] = true
+	return true
 }
 
 func solve2(input string) int {
@@ -157,41 +222,32 @@ func solve2(input string) int {
 		if next >= len(tiles) {
 			next = 0
 		}
-		edges = append(edges, Edge{tile, tiles[next]})
+		e := Edge{tile, tiles[next]}
+
+		edges = append(edges, e)
+
 	}
+	rectangles := sortedRectangles(tiles)
 	//Iterate over corners
-	for i, e1 := range edges {
-		next := i + 1
-		if next >= len(tiles) {
-			next = 0
-		}
-		e2 := edges[next]
-		e1_p, e2_p, err := projectCorner(e1, e2)
-		if err != nil {
-			// Not a corner
+	for _, r := range rectangles {
+		t2, t4 := oppositeCorners(r.a, r.b)
+		e1, e2, e3, e4 := edgesOfCorners(r.a, t2, r.b, t4)
+		// Check if the opposite corners are inside the green tiles
+		if !isInsideEdges(t2, edges) {
 			continue
 		}
-		area := area(e1.a, e2.b)
-		// Be greedy
-		if area > result {
-			fmt.Printf("looking at %v%v%v%v area:%v", e1, e2, e1_p, e2_p, area)
-			// Check if the projected edges intersect any of the existing edges.
-			// If they intersect, then they are not inside the green tiles.
-			contained := true
-			for _, other := range edges {
-				if intersect(e1_p, other) || intersect(e2_p, other) {
-					contained = false
-					fmt.Printf(" intersects %v", other)
-					break
-				}
-			}
-			if contained {
-				result = area
-			}
-			fmt.Printf("\n")
+		if !isInsideEdges(t4, edges) {
+			continue
+		}
+		// Check if all the edges are fully inside the green tiles
+		if edgeIsInsideEdges(e1, edges) &&
+			edgeIsInsideEdges(e2, edges) &&
+			edgeIsInsideEdges(e3, edges) &&
+			edgeIsInsideEdges(e4, edges) {
+			result = r.area
+			break
 		}
 	}
-
 	return result
 }
 
